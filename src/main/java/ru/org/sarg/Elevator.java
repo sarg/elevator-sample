@@ -2,11 +2,13 @@ package ru.org.sarg;
 
 public class Elevator {
 
+    private final Main.Clock clock;
+
     enum State {
-        FLOOR(" [:)] "),
-        OPENING(" [:)] "), OPENED("[ :) ]"),
-        CLOSING("[ :) ]"), CLOSED(" [:)] "),
-        IDLE(" [  ] ");
+        FLOOR  (" [:)] "),
+        OPENED ("[ :) ]"),
+        CLOSED (" [:)] "),
+        IDLE   (" [  ] ");
 
         final String view;
 
@@ -24,7 +26,7 @@ public class Elevator {
             this.inc = inc;
         }
 
-        public static Direction forInc(int from, int to) {
+        public static Direction fromTo(int from, int to) {
             if (from > to) {
                 return Direction.DOWN;
             } else if (from < to) {
@@ -37,17 +39,20 @@ public class Elevator {
 
     private final long[] cabinButtons;
     private final long[] floorButtons;
+
     private final long openTime;
     private final long delayTime;
     private final long floorTime;
-    protected final int floors;
 
-    int floor;
-    Direction direction;
-    State state;
-    State nextState;
+    private final int floors;
 
-    public Elevator(double speed, double floorHeight, int floors, long openTime) {
+    protected int floor;
+    private Direction direction;
+    private State state;
+    private State nextState;
+
+    public Elevator(Main.Clock clock, double speed, double floorHeight, int floors, long openTime) {
+        this.clock = clock;
         this.floorTime = (long) (1000 * floorHeight / speed);
         this.openTime = (long) (openTime * 0.8);
         this.delayTime = (long) (openTime * 0.1);
@@ -68,38 +73,49 @@ public class Elevator {
         return state;
     }
 
+    public Direction getDirection() {
+        return direction;
+    }
+
+    public int getFloors() {
+        return floors;
+    }
+
+    public State getNextState() {
+        return nextState;
+    }
+
+    public int getFloor() {
+        return floor;
+    }
+
     public void onPressCabinButton(int floor) {
-        if (floor < 1 || floor > floors) {
+        if (floor < 0 || floor >= floors) {
             throw new IllegalArgumentException("Incorrect floor");
         }
 
-        cabinButtons[floor-1] = Main.clock.now();
+        cabinButtons[floor] = clock.now();
     }
 
     public void onPressFloorButton(int floor) {
-        if (floor < 1 || floor > floors) {
+        if (floor < 0 || floor >= floors) {
             throw new IllegalArgumentException("Incorrect floor");
         }
 
-        floorButtons[floor-1] = Main.clock.now();
+        floorButtons[floor] = clock.now();
     }
 
-    // returns time in ms when to update state
+    /**
+     * Updates state and schedules next state update.
+     * @return ms to wait until next update
+     */
     public long updateState() {
-//        System.out.println("Update state: " + state + " to " + nextState);
-//        System.out.println("Direction: " + direction);
         state = nextState;
 
-        if (state == State.OPENING) {
-            nextState = State.OPENED;
-            return openTime;
-        } else if (state == State.OPENED) {
+        if (state == State.OPENED) {
             uncheckButtons();
-            nextState = State.CLOSING;
-            return delayTime;
-        } else if (state == State.CLOSING) {
             nextState = State.CLOSED;
-            return delayTime;
+            return openTime;
         }
 
         if (state == State.FLOOR) {
@@ -107,14 +123,14 @@ public class Elevator {
         }
 
         if (needOpenDoors()) {
-            nextState = State.OPENING;
-            return 0;
+            nextState = State.OPENED;
+            return delayTime;
         }
 
         direction = nextDirection();
         if (direction == Direction.NONE) {
             nextState = State.IDLE;
-            return 0;
+            return state == State.CLOSED ? delayTime : 0;
         } else {
             nextState = State.FLOOR;
             return floorTime;
@@ -125,15 +141,19 @@ public class Elevator {
         return cabinButtons[floor] > 0 || floorButtons[floor] > 0;
     }
 
+    /**
+     * Strategy for selecting next direction.
+     * @return new direction
+     */
     private Direction nextDirection() {
         long minFloorPressTime = Long.MAX_VALUE;
         int minFloorButton = -1;
 
-        int lowCabinButton = -1;
-        int highCabinButton = -1;
-
         long minCabinPressTime = Long.MAX_VALUE;
         int minCabinButton = -1;
+
+        int lowCabinButton = -1;
+        int highCabinButton = -1;
 
         for (int i = 0; i < floors; i++) {
             if (floorButtons[i] > 0) {
@@ -162,8 +182,8 @@ public class Elevator {
         // priorities:
         // sustain direction
         if (direction != Direction.NONE && (lowCabinButton != -1 || highCabinButton != -1)) {
-            if (direction == Direction.forInc(floor, lowCabinButton)
-                    || direction == Direction.forInc(floor, highCabinButton)) {
+            if (direction == Direction.fromTo(floor, lowCabinButton)
+                    || direction == Direction.fromTo(floor, highCabinButton)) {
 
                 return direction;
             }
@@ -171,12 +191,12 @@ public class Elevator {
 
         // go to earliest pressed cabin button
         if (minCabinButton != -1) {
-            return Direction.forInc(floor, minCabinButton);
+            return Direction.fromTo(floor, minCabinButton);
         }
 
         // go to earliest pressed floor button
         if (minFloorButton != -1) {
-            return Direction.forInc(floor, minFloorButton);
+            return Direction.fromTo(floor, minFloorButton);
         }
 
         // no commands
@@ -191,7 +211,7 @@ public class Elevator {
     public void draw() {
         System.out.println("-= Elevator simulator =-");
         System.out.println("f c floor");
-        long now = Main.clock.now();
+        long now = clock.now();
         for (int i = floors - 1; i >= 0; i--) {
             boolean floorPressed = floorButtons[i] > 0 && floorButtons[i] <= now;
             boolean cabinPressed = cabinButtons[i] > 0 && cabinButtons[i] <= now;

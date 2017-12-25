@@ -11,11 +11,9 @@ public class Main {
     private static Elevator elevator;
 
     private static final String ANSI_CLEAR_SCREEN = "\u001B[0J";
-    private static final String ANSI_MOVE_TO_PROMPT = "\u001B[1;0H";
     private static final String ANSI_ERASE_LINE = "\u001B[2K";
     private static final String ANSI_SAVE_CURSOR_POSITION = "\u001B7";
     private static final String ANSI_RESTORE_CURSOR_POSITION = "\u001B8";
-    private static final String ANSI_MOVE_TOP_LEFT = "\u001B[3;0H";
 
     static volatile boolean exit = false;
 
@@ -31,8 +29,8 @@ public class Main {
             try {
                 int i = Integer.parseInt(s);
 
-                if (i > 0 && i < elevator.floors) {
-                    return Optional.of(i);
+                if (i > 0 && i <= elevator.getFloors()) {
+                    return Optional.of(i-1);
                 }
             } catch (NumberFormatException e) {
             }
@@ -85,7 +83,7 @@ public class Main {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        elevator = new Elevator(3.0, 3.0, 10, TimeUnit.SECONDS.toMillis(2));
+        elevator = new Elevator(Main.clock, 3.0, 3.0, 10, TimeUnit.SECONDS.toMillis(2));
 
         ansiGotoLine(1);
         System.out.print(ANSI_CLEAR_SCREEN);
@@ -97,7 +95,7 @@ public class Main {
         while (!exit) {
             System.out.println(ANSI_SAVE_CURSOR_POSITION);
 
-            System.out.print(ANSI_MOVE_TOP_LEFT);
+            ansiGotoLine(3);
             System.out.print(ANSI_CLEAR_SCREEN);
 
             long nextStateDelay = 0;
@@ -119,6 +117,9 @@ public class Main {
                 elevator.wait(nextStateDelay);
             }
         }
+
+        ansiGotoLine(1);
+        System.out.print(ANSI_CLEAR_SCREEN);
     }
 
     public static class Clock {
