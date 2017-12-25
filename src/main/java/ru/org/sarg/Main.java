@@ -3,45 +3,121 @@ package ru.org.sarg;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 public class Main {
     public static Clock clock = new Clock();
+    private static Elevator elevator;
 
-    private static final String ANSI_CLEAR_SCREEN = "\u001B[2J";
-    private static final String ANSI_MOVE_TOP_LEFT = "\u001B[0;0H";
+    private static final String ANSI_CLEAR_SCREEN = "\u001B[0J";
+    private static final String ANSI_MOVE_TO_PROMPT = "\u001B[1;0H";
+    private static final String ANSI_ERASE_LINE = "\u001B[2K";
+    private static final String ANSI_SAVE_CURSOR_POSITION = "\u001B7";
+    private static final String ANSI_RESTORE_CURSOR_POSITION = "\u001B8";
+    private static final String ANSI_MOVE_TOP_LEFT = "\u001B[3;0H";
+
     static volatile boolean exit = false;
 
-    public static void main(String[] args) throws InterruptedException {
-        Elevator elevator = new Elevator(2.0, 3.0, 10);
+    public static class InputHandler implements Runnable {
+        private final BufferedReader r;
 
-        BufferedReader r = new BufferedReader(new InputStreamReader(System.in));
-        new Thread(() -> {
+        public InputHandler() {
+            r = new BufferedReader(new InputStreamReader(System.in));
+            prompt();
+        }
+
+        private Optional<Integer> getFloor(String s) {
+            try {
+                int i = Integer.parseInt(s);
+
+                if (i > 0 && i < elevator.floors) {
+                    return Optional.of(i);
+                }
+            } catch (NumberFormatException e) {
+            }
+
+            return Optional.empty();
+        }
+
+        @Override
+        public void run() {
             while (!exit) {
                 try {
                     String s = r.readLine();
+                    prompt();
 
-                    if (s.startsWith("q")) {
-                        exit = true;
-                        System.out.println("exit");
+                    if (s == null) { // handle C-d
+                        continue;
                     }
 
-                    try {
-                        int i = Integer.parseInt(s);
-                        elevator.onPressFloorButton(i);
-                    } catch (NumberFormatException e) {
+                    exit = s.startsWith("q");
+
+                    if (s.startsWith("c")) {
+                        Optional<Integer> floor = getFloor(s.substring(1));
+                        if (floor.isPresent()) {
+                            elevator.onPressCabinButton(floor.get());
+                        }
+                    }
+
+                    Optional<Integer> floor = getFloor(s);
+                    if (floor.isPresent()) {
+                        elevator.onPressFloorButton(floor.get());
+                    }
+
+                    synchronized (elevator) {
+                        elevator.notify();
                     }
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
             }
-        }).start();
+        }
+    }
 
+    public static void prompt() {
+        ansiGotoLine(2);
+        System.out.print(ANSI_ERASE_LINE + "> ");
+    }
+
+    public static void ansiGotoLine(int l) {
+        System.out.print("\u001B[" + l + ";1H");
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        elevator = new Elevator(3.0, 3.0, 10, TimeUnit.SECONDS.toMillis(2));
+
+        ansiGotoLine(1);
+        System.out.print(ANSI_CLEAR_SCREEN);
+        System.out.println("<digit> for floor buttons, c<digit> for cabin buttons, q for exit");
+
+        new Thread(new InputHandler()).start();
+
+        long nextStateToggle = 0;
         while (!exit) {
-            System.out.print(ANSI_CLEAR_SCREEN);
+            System.out.println(ANSI_SAVE_CURSOR_POSITION);
+
             System.out.print(ANSI_MOVE_TOP_LEFT);
+            System.out.print(ANSI_CLEAR_SCREEN);
+
+            long nextStateDelay = 0;
+
+            long now = clock.now();
+            if (nextStateToggle <= now) {
+                do {
+                    nextStateDelay = elevator.updateState();
+                } while (nextStateDelay == 0 && !elevator.isIdle());
+
+                nextStateToggle = now + nextStateDelay;
+            }
 
             elevator.draw();
-            Thread.sleep(1000);
+
+            System.out.print(ANSI_RESTORE_CURSOR_POSITION);
+
+            synchronized (elevator) {
+                elevator.wait(nextStateDelay);
+            }
         }
     }
 
@@ -49,91 +125,6 @@ public class Main {
         public long now() {
             return System.nanoTime();
         }
-
-        public void schedule(long delay, Runnable task) {
-            try {
-                Thread.sleep(delay);
-            } catch (InterruptedException e) {
-            }
-
-            task.run();
-        }
     }
 
-    public static class Elevator {
-        public static class State {
-            public State(Action action, int floor) {
-                this.floor = floor;
-                this.action = action;
-            }
-
-
-            enum Action {
-                GOING_UP, GOING_DOWN, STAYING, OPENING, CLOSING, IDLE
-            }
-
-            public final int floor;
-            public final Action action;
-        }
-
-        private final long[] cabinButtons;
-        private final long[] floorButtons;
-        private final double speed;
-        private final double floorHeight;
-        private final int floors;
-        private State state;
-        private State nextState;
-
-        public boolean isPressed(int i, long now) {
-            return floorButtons[i] > 0 && floorButtons[i] <= now;
-        }
-
-        public Elevator(double speed, double floorHeight, int floors) {
-            this.speed = speed;
-            this.floorHeight = floorHeight;
-            this.floors = floors;
-            this.floorButtons = new long[floors];
-            this.cabinButtons = new long[floors];
-            this.state = new State(State.Action.IDLE, 0);
-            this.nextState = this.state;
-        }
-
-        public State getState() {
-            return state;
-        }
-
-        public void onPressCabinButton(int floor) {
-            cabinButtons[floor] = clock.now();
-        }
-
-        public void onPressFloorButton(int floor) {
-            floorButtons[floor] = clock.now();
-        }
-
-        public void refresh() {
-            state = nextState;
-
-            long min = Long.MAX_VALUE;
-            int minFloor = 0;
-            for (int i = 0; i < floorButtons.length; i++) {
-                if (floorButtons[i] > 0 && floorButtons[i] < min) {
-                    min = floorButtons[i];
-                    minFloor = i;
-                }
-            }
-        }
-
-        public void draw() {
-            System.out.println("-= Elevator simulator =-");
-            long now = clock.now();
-            for (int i = floors-1; i >= 0; i--) {
-                System.out.println(String.format(" %02d %1s |  %4s  |",
-                        i,
-                        isPressed(i, now) ? '*' : ' ',
-                        state.floor == i ? "[:)]" : ""
-                ));
-            }
-        }
-
-    }
 }
