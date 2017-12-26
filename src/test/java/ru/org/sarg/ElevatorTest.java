@@ -14,7 +14,7 @@ public class ElevatorTest {
     }
 
     public void idle(int floor) {
-        elevator = new Elevator(Main.clock,1, 10, 10, 1000);
+        elevator = new Elevator(new Main.Clock(),1, 10, 10, 1000);
         elevator.floor = floor;
     }
 

@@ -7,7 +7,13 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 public class Main {
-    public static Clock clock = new Clock();
+    public static class Clock {
+        public long now() {
+            return System.nanoTime();
+        }
+    }
+
+    private static Clock clock = new Clock();
     private static Elevator elevator;
 
     private static final String ANSI_CLEAR_SCREEN = "\u001B[0J";
@@ -83,7 +89,11 @@ public class Main {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        elevator = new Elevator(Main.clock, 3.0, 3.0, 10, TimeUnit.SECONDS.toMillis(2));
+        elevator = buildFromArgs(args);
+        if (elevator == null) {
+            help();
+            System.exit(1);
+        }
 
         ansiGotoLine(1);
         System.out.print(ANSI_CLEAR_SCREEN);
@@ -93,24 +103,25 @@ public class Main {
 
         long nextStateToggle = 0;
         while (!exit) {
-            System.out.println(ANSI_SAVE_CURSOR_POSITION);
+            System.out.print(ANSI_SAVE_CURSOR_POSITION);
 
             ansiGotoLine(3);
             System.out.print(ANSI_CLEAR_SCREEN);
 
-            long nextStateDelay = 0;
-
             long now = clock.now();
+            long nextStateDelay;
             if (nextStateToggle <= now) {
                 do {
                     nextStateDelay = elevator.updateState();
                 } while (nextStateDelay == 0 && !elevator.isIdle());
-
-                nextStateToggle = now + nextStateDelay;
+                nextStateToggle = now + TimeUnit.MILLISECONDS.toNanos(nextStateDelay);
+            } else {
+                nextStateDelay = TimeUnit.NANOSECONDS.toMillis(nextStateToggle - now);
             }
 
             elevator.draw();
 
+            System.out.println(String.format("%s -> %s in %d ms", elevator.getState(), elevator.getNextState(), nextStateDelay));
             System.out.print(ANSI_RESTORE_CURSOR_POSITION);
 
             synchronized (elevator) {
@@ -122,10 +133,33 @@ public class Main {
         System.out.print(ANSI_CLEAR_SCREEN);
     }
 
-    public static class Clock {
-        public long now() {
-            return System.nanoTime();
-        }
+    private static void help() {
+        System.out.println("args: floors(5-20) floorHeight(>0) speed(>0) openTime");
     }
 
+    private static Elevator buildFromArgs(String[] args) {
+        if (args.length == 4) {
+            try {
+                int floors = Integer.parseUnsignedInt(args[0]);
+                double floorHeight = Double.parseDouble(args[1]);
+                double speed = Double.parseDouble(args[2]);
+                int openTime = Integer.parseUnsignedInt(args[3]);
+
+                if (floors < 5 || floors > 20
+                        || !(floorHeight > 0)
+                        || !(speed > 0)) {
+
+                    throw new IllegalArgumentException("Incorrect input");
+                }
+
+                return new Elevator(clock, speed, floorHeight, floors, TimeUnit.SECONDS.toMillis(openTime));
+            } catch (NumberFormatException e) {
+                System.out.println("Can't parse input " + e.getMessage());
+            } catch (IllegalArgumentException e) {
+                System.out.println("Incorrect input, please check constraints");
+            }
+        }
+
+        return null;
+    }
 }

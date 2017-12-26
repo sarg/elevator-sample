@@ -65,10 +65,6 @@ public class Elevator {
         this.floor = 0;
     }
 
-    public boolean isIdle() {
-        return state == State.IDLE && nextState == State.IDLE;
-    }
-
     public State getState() {
         return state;
     }
@@ -87,6 +83,10 @@ public class Elevator {
 
     public int getFloor() {
         return floor;
+    }
+
+    public boolean isIdle() {
+        return state == State.IDLE && nextState == State.IDLE;
     }
 
     public void onPressCabinButton(int floor) {

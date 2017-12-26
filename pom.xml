@@ -27,10 +27,10 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>ru.org.sarg.dungeon.Dungeon</mainClass>
+                            <mainClass>ru.org.sarg.Main</mainClass>
                         </manifest>
                     </archive>
-                    <finalName>dungeon</finalName>
+                    <finalName>elevator</finalName>
                 </configuration>
             </plugin>
         </plugins>
